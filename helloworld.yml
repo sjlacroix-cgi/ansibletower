@@ -1,5 +1,5 @@
 - name: This is a hello-world example
   hosts: localhost
   tasks:
-- debug:
-    msg: "System {{ inventory_hostname }} has uuid {{ ansible_product_uuid }}"
+    - debug:
+      msg: "Hello World!"
