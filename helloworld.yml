@@ -1,5 +1,9 @@
+---
 - name: This is a hello-world example
-  hosts: localhost
+- hosts: localhost
   tasks:
+    - shell: ls
+      register: shell_result
+
     - debug:
-      msg: "Hello World!"
+        var: shell_result.stdout_lines
