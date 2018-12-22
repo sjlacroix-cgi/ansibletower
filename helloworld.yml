@@ -5,3 +5,8 @@
   tasks:
     - debug:
         msg: "Hello World!"
+        
+    - name: Set a variable for the api response to recevied
+      set_stats:
+       data:
+        Sonar_url: "http://www.sonar.com"
