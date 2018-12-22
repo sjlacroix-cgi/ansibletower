@@ -1,5 +1,7 @@
 ---
+# this is just a test
 - name: This is a hello-world example
+  hosts: all
   tasks:
     - debug:
         mag: "Hello World!"
