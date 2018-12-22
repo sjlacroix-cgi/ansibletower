@@ -4,4 +4,4 @@
   hosts: all
   tasks:
     - debug:
-        mag: "Hello World!"
+        msg: "Hello World!"
