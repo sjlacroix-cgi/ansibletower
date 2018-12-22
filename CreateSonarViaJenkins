@@ -1,0 +1,107 @@
+- name: Generate jenkins Job config XML
+  template: src=jenkins_config.j2 dest="/tmp/{{PROJECT_NAME}}.xml"
+- name: Create a Jenkins job using playbook
+  block:
+   - name: Create a Jenkins job using playbook - Block
+     jenkins_job:
+         config: "{{ lookup('file', '/tmp/{{PROJECT_NAME}}.xml') }}"
+         name: "{{PROJECT_NAME}}"
+         password: "{{ Jenkins_password }}"
+         url: "{{jenkins_protocol}}://{{jenkins_host}}"
+         user: "{{ Jenkins_username }}"
+     register: build_create_job_result
+   - name: debug jenkins build create result
+     debug:
+       var: build_create_job_result
+       verbosity: 1
+  rescue:
+    - name: Fail - we could not create a new build job in Jenkins
+      fail:
+        msg: "Error, could not create a jenkins job - {{PROJECT_NAME}} "
+- name: Ensure the build is triggered by polling jenkins job queue
+  block:
+    - name: Trigger Jenkins job using playbook - Block
+      uri:
+         url: "{{jenkins_protocol}}://{{jenkins_host}}/job/{{PROJECT_NAME}}/build"
+         method: POST
+         user: "{{ Jenkins_username }}"
+         password: "{{ Jenkins_password }}"
+         force_basic_auth: yes
+         headers:
+              Content-Type: "application/json"
+         return_content: yes
+         status_code: 201
+      register: build_start_job_result
+      when: build_create_job_result.changed
+    - name: Debug jenkins build create result
+      debug:
+        var: build_start_job_result
+        verbosity: 1
+  rescue:
+    - name: Fail - we could not trigger job in Jenkins
+      fail: "Error, could not trigger jenkins job - {{PROJECT_NAME}} "
+- name: query jenkins job queue to see if it has been able to start a build
+  block:
+    - name: poll jenkins JOB QUEUE every 10 seconds for configured number of attempts to get the number from the job queue
+      uri:
+        url: "{{build_start_job_result.location}}api/json"
+        method: GET
+        user: "{{ Jenkins_username }}"
+        password: "{{ Jenkins_password }}"
+        force_basic_auth: yes
+        headers:
+          Content-Type: "application/json"
+        return_content: yes
+        timeout: " {{ poll_delay_seconds }} "
+      register: poll_result
+      until: poll_result|json_query('json.executable.number')|default(0)|int > 0
+      retries: '{{ success_check_max_retries }}'
+  rescue:
+    - name: Unable to query jenkins
+      fail:
+        msg: "Error, could not queue a new build for jenkins job"
+- name: check for jenkins job success
+  block:
+    - name: show the build job url detected above
+      debug:
+        msg: "Build job is at [ {{jenkins_protocol}}://{{jenkins_host}}/job/{{PROJECT_NAME}}/{{poll_result.json.executable.number}}/api/json ]"
+    - name: Poll jenkins JOB every 10 seconds
+      uri:
+        force_basic_auth: yes
+        headers:
+          Content-Type: "application/json"
+        method: GET
+        password: "{{ Jenkins_password }}"
+        return_content: yes
+        timeout: '{{ poll_delay_seconds }}'
+        url: "{{jenkins_protocol}}://{{jenkins_host}}/job/{{ PROJECT_NAME }}/{{poll_result.json.executable.number}}/api/json"
+        user: "{{ Jenkins_username }}"
+      register: Sonar_build_job_result
+      until: Sonar_build_job_result|json_query('json.result') == 'SUCCESS'
+      retries: '{{ success_check_max_retries }}'
+      delay: '{{ poll_delay_seconds }}'
+      
+
+    - name: show the build job url detected above
+      debug:
+        msg: "Jenkins Build job [ {{jenkins_protocol}}://{{jenkins_host}}/job/{{ PROJECT_NAME }}/{{poll_result.json.executable.number}}/api/json ] reported SUCCESS"
+        
+    - name: Show the build Sonarurl
+      debug:
+        msg: "{{ Sonar_build_job_result.json.actions[4].sonarqubeDashboardUrl }}" 
+      register: SonarQubeUrl
+      
+    - name: Posting the url  
+      set_stats:
+       data:
+        Sonar_url: "{{ Sonar_build_job_result.json.actions[4].sonarqubeDashboardUrl }}"
+        
+
+      
+  rescue:
+    - name:
+      fail:
+        msg: "Jenkins Build job [ {{jenkins_protocol}}://{{jenkins_host}}/job/{{ PROJECT_NAME }}/{{poll_result.json.executable.number}}/api/json ] did not report SUCCESS within the timeout period. This can happen if the job is taking longer than the polling timeout (approx {{ poll_delay_seconds * success_check_max_retries }} seconds), or the build is stuck for some reason, such as no available build executors.Please login to jenkins and check it"
+- file:
+    path: /tmp/{{PROJECT_NAME}}.xml
+    state: absent
